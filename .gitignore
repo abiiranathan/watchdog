@@ -1,0 +1,7 @@
+*.o
+*.a
+bin/*
+*.so
+*.dll
+uploads
+static
