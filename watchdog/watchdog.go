@@ -83,3 +83,11 @@ func (w *WatchDog) HandleEvents(command string, patterns, excludePatterns []stri
 
 	C.handle_events((*C.EventArgs)(args))
 }
+
+func VerboseMode(flag bool) {
+	if flag {
+		C.enable_verbose_logging()
+	} else {
+		C.disable_verbose_logging()
+	}
+}

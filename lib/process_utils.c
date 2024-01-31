@@ -20,9 +20,7 @@ static void safe_update_pid(pid_t child_pid) {
 void kill_previous_process(int prev_child_pid) {
   // Kill previous child process
   if (prev_child_pid != -1) {
-    if ((kill(prev_child_pid, SIGKILL)) == -1) {
-      perror("kill child process");
-    } else {
+    if ((kill(prev_child_pid, SIGKILL)) != -1) {
       printf("Killed previous child process with pid: %d\n", prev_child_pid);
       safe_update_pid(-1);
     }
@@ -30,6 +28,7 @@ void kill_previous_process(int prev_child_pid) {
 }
 
 void reload_process(void) {
+  printf("Reloading process...\n");
   kill_previous_process(prev_child_pid);
 
   pid_t child_pid = fork();

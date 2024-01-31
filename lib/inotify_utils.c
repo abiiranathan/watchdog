@@ -20,6 +20,17 @@
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 static time_t last_reload_time = 0;
 
+// Global debug flag
+int verbose = 0;
+
+void enable_verbose_logging() {
+  verbose = 1;
+}
+
+void disable_verbose_logging() {
+  verbose = 0;
+}
+
 static void safe_update_time(time_t* t) {
   // mutex
   pthread_mutex_lock(&mutex);
@@ -44,21 +55,19 @@ static int add_watch(int inotify_fd, const char* path, uint32_t mask) {
   int watch_fd = inotify_add_watch(inotify_fd, path, mask);
   if (watch_fd == -1) {
     perror("inotify_add_watch");
-    fprintf(stderr, "Failed to add watch for: %s\n", path);
+    debug_log("Failed to add watch for: %s\n", path);
     exit(EXIT_FAILURE);
   }
   return watch_fd;
 }
 
-__attribute__((always_inline)) static inline int is_excluded(const char* path, int num_excluded,
-                                                             char* exclude_patterns[]) {
-  if (exclude_patterns == NULL) {
+static int is_excluded(const char* path, int num_excluded, char* exclude_patterns[]) {
+  if (exclude_patterns == NULL || strlen(path) == 0) {
     return 0;
   }
 
   for (int i = 0; i < num_excluded; ++i) {
     if (strcmp(path, exclude_patterns[i]) == 0) {
-      printf("Excluding pattern: %s\n", path);
       return 1;
     }
   }
@@ -72,7 +81,6 @@ static void watch_events(int inotify_fd, int num_patterns, char* patterns[], int
 
     // Check if the pattern is excluded
     if (is_excluded(p, num_excluded, exclude_patterns)) {
-      printf("skipping excluded pattern: %s\n", p);
       continue;
     }
 
@@ -83,15 +91,21 @@ static void watch_events(int inotify_fd, int num_patterns, char* patterns[], int
   }
 }
 
-void get_filename(struct WatchList* list, int list_size, int watch_fd, char* name) {
+void get_filename(struct WatchList* list, int list_size, int watch_fd, char* name, int name_size) {
   for (int i = 0; i < list_size; i++) {
     if (list[i].watch_fd == watch_fd) {
-      strncpy(name, list[i].name, PATH_MAX - 1);
-      printf("Matching pattern: %s\n", name);
+      strncpy(name, list[i].name, name_size - 1);
+      name[name_size - 1] = '\0';
       return;
     }
   }
-  name = NULL;
+  name[0] = '\0';
+}
+
+static int is_directory(const char* path) {
+  struct stat path_stat;
+  stat(path, &path_stat);
+  return S_ISDIR(path_stat.st_mode);
 }
 
 void run_in_background(void) {
@@ -101,6 +115,7 @@ void run_in_background(void) {
   safe_update_time(&last_reload_time);
 }
 
+// Handle events
 void handle_events(EventArgs* args) {
   int list_size;
   struct WatchList* list = malloc(sizeof(struct WatchList) * args->num_patterns);
@@ -120,6 +135,7 @@ void handle_events(EventArgs* args) {
   uint32_t mask =
     IN_MODIFY | IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MOVE_SELF | IN_MOVED_FROM | IN_MOVED_TO;
 
+  debug_log("Watching %d files or directories\n", list_size);
   while (1) {
     bytes_read = read(args->inotify_fd, buf, BUF_LEN);
     if (bytes_read == -1) {
@@ -127,17 +143,41 @@ void handle_events(EventArgs* args) {
       exit(EXIT_FAILURE);
     }
 
+
     // see man inotify
     for (char* p = buf; p < buf + bytes_read;) {
       struct inotify_event* event = (struct inotify_event*)p;
       if (event->mask & mask) {
-        char name[PATH_MAX] = {0};
-        get_filename(list, list_size, event->wd, name);
+        char name[PATH_MAX] = "";
+        char complete_path[PATH_MAX] = "";
+        int is_dir = 0;
+
+        get_filename(list, list_size, event->wd, name, sizeof(name));
+
+        if ((is_dir = is_directory(name))) {
+          // construct complete path as event->name is only the name of the file
+          strcat(complete_path, name);
+          strcat(complete_path, "/");
+          strcat(complete_path, event->name);
+
+          if (is_excluded(complete_path, args->num_excluded, args->exclude_patterns)) {
+            p += EVENT_SIZE + event->len;
+            inotify_rm_watch(args->inotify_fd, event->wd);
+            debug_log("[Skipping]: Removed watch for %s\n", complete_path);
+            continue;
+          }
+        }
+
+        if (is_excluded(name, args->num_excluded, args->exclude_patterns)) {
+          p += EVENT_SIZE + event->len;
+          inotify_rm_watch(args->inotify_fd, event->wd);
+          debug_log("[Skipping]: Removed watch for %s\n", name);
+          continue;
+        }
+
         time_t now = time(NULL);
         if (now - last_reload_time > RELOAD_TIMEOUT) {
-          if ((char*)name != NULL) {
-            fprintf(stdout, "Detected changes in %s", name);
-          }
+          debug_log("%s has changed\n", is_dir ? complete_path : name);
           run_in_background();
         }
       }

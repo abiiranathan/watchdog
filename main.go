@@ -3,9 +3,9 @@ package main
 import (
 	"log"
 	"os"
-	"watchdog/watchdog"
 
 	"github.com/abiiranathan/goflag"
+	"github.com/abiiranathan/watchdog/watchdog"
 )
 
 var (
@@ -26,6 +26,9 @@ var (
 
 	// Watch current directory
 	watchCWD bool = false
+
+	// Watch directories recursively
+	recursive bool = true
 )
 
 func main() {
@@ -36,6 +39,7 @@ func main() {
 	ctx.AddFlag(goflag.FlagStringSlice, "exclude", "e", &exclude, "Exclude patterns from watching", false)
 	ctx.AddFlag(goflag.FlagBool, "verbose", "v", &verbose, "Enable debug mode", false)
 	ctx.AddFlag(goflag.FlagBool, "watchcur", "w", &watchCWD, "Watch current directory", false)
+	ctx.AddFlag(goflag.FlagBool, "recursive", "r", &recursive, "Watch directories recursively", false)
 
 	_, err := ctx.Parse(os.Args)
 	if err != nil {
@@ -54,14 +58,16 @@ func main() {
 
 	// Expand the patterns and exclude patterns
 	exclude = append(exclude, watchdog.DefaultExcludes...)
-	expandedPatterns := watchdog.GlobExpand(patterns, watchCWD)
-	expandedExclude := watchdog.GlobExpand(exclude, watchCWD)
+	expandedPatterns := watchdog.GlobExpand(patterns, watchCWD, recursive)
+	expandedExclude := watchdog.GlobExpand(exclude, watchCWD, recursive)
+
+	// Filter the expanded patterns and exclude patterns
+	expandedPatterns = watchdog.Filter(expandedPatterns, expandedExclude)
+	expandedExclude = watchdog.Unique(expandedExclude)
 
 	if verbose {
 		log.Printf("Main Process ID: %v\n", os.Getpid())
-		log.Printf("Expanded patterns: %v\n", expandedPatterns)
-		log.Printf("Expanded exclude patterns: %v\n", expandedExclude)
+		watchdog.VerboseMode(verbose)
 	}
-
 	wd.HandleEvents(command, expandedPatterns, expandedExclude)
 }
