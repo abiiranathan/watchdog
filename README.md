@@ -17,6 +17,11 @@ Install watch dog in your go project:
 go get -u github.com/abiiranathan/watchdog
 ```
 
+Install CLI:
+```bash
+go install github.com/abiiranathan/watchdog
+```
+
 ## Usage
 First, import the [`watchdog`] package in your Go file:
 
