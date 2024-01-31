@@ -1,9 +1,9 @@
 package main
 
 import (
-	"golive/watchdog"
 	"log"
 	"os"
+	"watchdog/watchdog"
 
 	"github.com/abiiranathan/goflag"
 )
